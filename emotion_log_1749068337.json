@@ -1,0 +1,27 @@
+[
+  {
+    "emotion": "angry",
+    "timestamp": 1749068271.291635,
+    "readable_time": "13:17:51"
+  },
+  {
+    "emotion": "sad",
+    "timestamp": 1749068287.339283,
+    "readable_time": "13:18:07"
+  },
+  {
+    "emotion": "neutral",
+    "timestamp": 1749068303.380783,
+    "readable_time": "13:18:23"
+  },
+  {
+    "emotion": "neutral",
+    "timestamp": 1749068319.427132,
+    "readable_time": "13:18:39"
+  },
+  {
+    "emotion": "sad",
+    "timestamp": 1749068335.530067,
+    "readable_time": "13:18:55"
+  }
+]
