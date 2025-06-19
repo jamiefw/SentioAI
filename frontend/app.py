@@ -25,15 +25,24 @@ from datetime import datetime
 import uuid
 import sys
 import random
-import queue # NEW: Import queue module
+import queue
 
-# Add the models directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'models', 'emotion_detection'))
+# --- Path Adjustments for Imports ---
+# Get the absolute path of the directory containing the current script (app.py)
+current_script_dir = os.path.dirname(os.path.abspath(__file__))
+
+project_root_dir = os.path.join(current_script_dir, '..')
+
+#adding the project root to sys.path.insert(0) to ensure it's checked first
+sys.path.insert(0, project_root_dir)
+
+import backend.app.services.database as database # IMPORT
 
 try:
-    from emotion_classifier import EmotionDetector
-except ImportError:
-    st.error("Could not import EmotionDetector. Make sure you have 'emotion_classifier.py' in 'models/emotion_detection/' and its dependencies are installed.")
+    # Also update the EmotionDetector import to be relative to the project root
+    from models.emotion_detection.emotion_classifier import EmotionDetector
+except ImportError as e:
+    st.error(f"Could not import EmotionDetector: {e}. Please ensure 'models/emotion_detection/emotion_classifier.py' exists and dependencies are installed.")
     st.stop()
 
 # Import GPT companion (already present)
@@ -333,11 +342,12 @@ def transcribe_audio(audio_file_path, api_key):
         return None
 
 def save_journal_entry(emotion, prompt, entry_text, ai_response=None, voice_data=None):
-    """Save a complete journal entry with AI response"""
+    """Save a complete journal entry into the database.""" # CHANGED DOCSTRING
     entry = {
         'id': str(uuid.uuid4()),
         'timestamp': datetime.now().isoformat(),
         'emotion': emotion,
+        'confidence': st.session_state.current_emotion.get('confidence', 0.0), # Get current confidence from session state
         'prompt': prompt,
         'entry_text': entry_text,
         'ai_response': ai_response,
@@ -346,17 +356,24 @@ def save_journal_entry(emotion, prompt, entry_text, ai_response=None, voice_data
         'has_ai_response': ai_response is not None
     }
     
-    st.session_state.journal_entries.append(entry)
+    st.session_state.journal_entries.append(entry) # Keep in session state for current session display
     
-    # Save to file
-    os.makedirs('data/journal_entries', exist_ok=True)
-    with open('data/journal_entries/complete_session_entries.json', 'w') as f:
-        json.dump(st.session_state.journal_entries, f, indent=2)
+    #inserting into SQLite database instead of JSON file
+    if database.insert_journal_entry(entry):
+        print(f"[{_get_timestamp()}] Entry {entry['id']} successfully saved to DB.")
+    else:
+        st.error("Failed to save entry to database. Check terminal for details.")
+    
+    # No need to dump to JSON file directly here anymore, as database handles persistence
+    # os.makedirs('data/journal_entries', exist_ok=True)
+    # with open('data/journal_entries/complete_session_entries.json', 'w') as f:
+    #    json.dump(st.session_state.journal_entries, f, indent=2)
     
     return entry
 
 def main():
     initialize_session_state() 
+    database.create_tables() 
     
     # Header
     st.markdown('<h1 class="main-header">🌟 SentioAI - Complete Emotional Journaling Experience</h1>', unsafe_allow_html=True)
