@@ -25,6 +25,7 @@ from datetime import datetime
 import uuid
 import sys
 import random
+import queue # NEW: Import queue module
 
 # Add the models directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'models', 'emotion_detection'))
@@ -32,10 +33,10 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'models', 'emotion
 try:
     from emotion_classifier import EmotionDetector
 except ImportError:
-    st.error("Could not import EmotionDetector. Make sure you're running from the project root directory.")
+    st.error("Could not import EmotionDetector. Make sure you have 'emotion_classifier.py' in 'models/emotion_detection/' and its dependencies are installed.")
     st.stop()
 
-# Import GPT companion
+# Import GPT companion (already present)
 class EmotionalCompanion:
     def __init__(self, api_key):
         """Initialize the GPT emotional companion"""
@@ -134,7 +135,7 @@ Guidelines:
                 'fallback': True
             }
 
-# Emotion-based prompts
+# Emotion-based prompts (already present)
 EMOTION_PROMPTS = {
     'happy': [
         "What's bringing you joy today? Let's capture this positive moment...",
@@ -180,71 +181,78 @@ EMOTION_PROMPTS = {
     ]
 }
 
-# Custom CSS
-st.markdown("""
-<style>
-    .main-header {
-        text-align: center;
-        color: #2E7D8E;
-        margin-bottom: 1rem;
-        font-weight: 300;
-    }
-    
-    .emotion-badge {
-        display: inline-block;
-        padding: 0.5rem 1rem;
-        border-radius: 20px;
-        font-weight: bold;
-        margin: 0.5rem 0;
-        text-align: center;
-    }
-    
-    .emotion-happy { background: linear-gradient(135deg, #FFE066, #FFF566); color: #B8860B; }
-    .emotion-sad { background: linear-gradient(135deg, #4A90E2, #7BB3F0); color: black; }
-    .emotion-angry { background: linear-gradient(135deg, #FF6B6B, #FF8E8E); color: black; }
-    .emotion-surprise { background: linear-gradient(135deg, #FFD93D, #FFED4A); color: #B8860B; }
-    .emotion-fear { background: linear-gradient(135deg, #9B59B6, #BB77C4); color: black; }
-    .emotion-disgust { background: linear-gradient(135deg, #2ECC71, #58D68D); color: black; }
-    .emotion-neutral { background: linear-gradient(135deg, #BDC3C7, #D5DBDB); color: #34495E; }
-    
-    .prompt-container {
-        background: #F8F9FA;
-        border-left: 4px solid #2E7D8E;
-        padding: 1.5rem;
-        border-radius: 0 8px 8px 0;
-        margin: 1rem 0;
-        font-style: italic;
-        font-size: 1.1rem;
-        color: #555;
-    }
-    
-    .ai-response-container {
-        background: linear-gradient(135deg, black, #e6f3ff);
-        border: 2px solid #4CAF50;
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin: 1rem 0;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-    }
-    
-    .journal-container {
-        background: white;
-        border: 2px solid #E1E8ED;
-        border-radius: 12px;
-        padding: 1.5rem;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-    }
-    
-    .session-info {
-        background: #E8F5E8;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-        border-left: 4px solid #28A745;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Helper function to get the current timestamp for printing
+def _get_timestamp():
+    return datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
+# --- Camera and Emotion Detection Thread ---
+# Added 'output_queue' as a parameter for the thread to push data to
+def run_camera_detection(detector_instance, stop_event_for_thread, output_queue):
+    """
+    Function to run in a separate thread for continuous camera capture and emotion detection.
+    Pushes detected emotions to a queue for the main Streamlit thread to consume.
+    """
+    cap = None 
+    print(f"[{_get_timestamp()}] Camera thread starting...")
+    try:
+        cap = cv2.VideoCapture(0)  # Open default camera
+        if not cap.isOpened():
+            print(f"[{_get_timestamp()}] Error: Could not open webcam. Signaling stop.")
+            stop_event_for_thread.set() 
+            output_queue.put({'status': 'error', 'message': "Webcam could not be opened. Please check connections/permissions."})
+            return
+
+        print(f"[{_get_timestamp()}] Webcam successfully opened.")
+        
+        if not detector_instance:
+            print(f"[{_get_timestamp()}] ERROR: EmotionDetector instance not provided to thread! Signaling stop.")
+            stop_event_for_thread.set()
+            output_queue.put({'status': 'error', 'message': "Emotion detection engine not initialized."})
+            return
+        else:
+            print(f"[{_get_timestamp()}] Using provided EmotionDetector instance.")
+
+
+        while not stop_event_for_thread.is_set():
+            ret, frame = cap.read()
+            if not ret:
+                print(f"[{_get_timestamp()}] Failed to grab frame. Signaling stop.")
+                stop_event_for_thread.set()
+                output_queue.put({'status': 'error', 'message': "Failed to read frame from webcam."})
+                break 
+
+            try:
+                # Corrected: detect_emotion returns a single dictionary, not two values
+                emotion_data = detector_instance.detect_emotion(frame)
+            except Exception as detector_e:
+                print(f"[{_get_timestamp()}] Error during emotion detection: {detector_e}")
+                emotion_data = None 
+                output_queue.put({'status': 'warning', 'message': f"Emotion detection temporarily failed: {detector_e}"})
+
+
+            if emotion_data and 'emotion' in emotion_data and 'confidence' in emotion_data:
+                # Push the detected emotion data to the queue
+                output_queue.put({'status': 'success', 
+                                  'emotion': emotion_data['emotion'], 
+                                  'confidence': emotion_data['confidence'], # CORRECTED: Removed * 100 here
+                                  'timestamp': _get_timestamp()})
+                print(f"[{_get_timestamp()}] Detected and queued: {emotion_data['emotion']} ({emotion_data['confidence']:.1f}%)")
+                
+            time.sleep(0.05) # Small delay to prevent burning CPU
+            
+    except Exception as e:
+        print(f"[{_get_timestamp()}] CRITICAL ERROR IN CAMERA THREAD: {e}")
+        stop_event_for_thread.set()
+        output_queue.put({'status': 'critical_error', 'message': f"Critical camera thread error: {e}"})
+    finally:
+        print(f"[{_get_timestamp()}] Camera thread 'finally' block entered.")
+        if cap and cap.isOpened(): 
+            print(f"[{_get_timestamp()}] Releasing webcam.")
+            cap.release()
+        else:
+            print(f"[{_get_timestamp()}] Webcam not opened or already released, skipping release.")
+        stop_event_for_thread.set() 
+        print(f"[{_get_timestamp()}] Camera thread finished.")
 
 
 # Initialize session state
@@ -265,14 +273,32 @@ def initialize_session_state():
         st.session_state.current_prompt = ""
     if 'voice_transcript' not in st.session_state:
         st.session_state.voice_transcript = ""
+    if 'camera_thread' not in st.session_state:
+        st.session_state.camera_thread = None
+    if 'detector_instance_created' not in st.session_state:
+        st.session_state.detector_instance_created = False
+    if 'stop_event' not in st.session_state:
+        st.session_state.stop_event = None
+    if 'emotion_queue' not in st.session_state:
+        st.session_state.emotion_queue = queue.Queue()
+    # NEW: For stable journaling prompt
+    if 'display_prompt_text' not in st.session_state:
+        st.session_state.display_prompt_text = ""
+    if 'prompt_is_fresh' not in st.session_state:
+        st.session_state.prompt_is_fresh = True # Flag to generate new prompt
+    # NEW: For stable journal text area input
+    if 'journal_input_value' not in st.session_state:
+        st.session_state.journal_input_value = ""
+
 
 def setup_apis():
     """Setup OpenAI API for GPT companion"""
     api_key = os.getenv('OPENAI_API_KEY')
     if not api_key:
-        api_key = st.sidebar.text_input("🔑 OpenAI API Key", type="password")
+        api_key = st.sidebar.text_input("🔑 OpenAI API Key", type="password", key="openai_api_key_input")
     
     if api_key:
+        st.session_state.openai_api_key = api_key 
         if st.session_state.gpt_companion is None:
             st.session_state.gpt_companion = EmotionalCompanion(api_key)
         return True
@@ -330,7 +356,7 @@ def save_journal_entry(emotion, prompt, entry_text, ai_response=None, voice_data
     return entry
 
 def main():
-    initialize_session_state()
+    initialize_session_state() 
     
     # Header
     st.markdown('<h1 class="main-header">🌟 SentioAI - Complete Emotional Journaling Experience</h1>', unsafe_allow_html=True)
@@ -347,41 +373,103 @@ def main():
     with col2:
         if not st.session_state.detection_running:
             if st.button("🚀 Start Complete SentioAI Session", use_container_width=True, type="primary"):
-                st.session_state.detection_running = True
+                if not st.session_state.detector_instance_created:
+                    st.session_state.emotion_detector = EmotionDetector(smoothing_window=8, detection_interval=15.0) # Set to 15.0 seconds
+                    st.session_state.detector_instance_created = True
+                
+                st.session_state.stop_event = threading.Event()
+                st.session_state.stop_event.clear() 
+                
+                st.session_state.emotion_queue = queue.Queue() # Reset queue
+                
+                st.session_state.detection_running = True 
                 st.session_state.session_start_time = datetime.now()
-                st.rerun()
+                
+                # NEW: Set prompt to be fresh on new session start
+                st.session_state.prompt_is_fresh = True 
+                st.session_state.journal_input_value = "" # Clear previous input
+
+                if st.session_state.camera_thread is None or not st.session_state.camera_thread.is_alive():
+                    st.session_state.camera_thread = threading.Thread(
+                        target=run_camera_detection, 
+                        args=(
+                            st.session_state.emotion_detector, 
+                            st.session_state.stop_event, 
+                            st.session_state.emotion_queue 
+                        ),
+                        daemon=True
+                    )
+                    st.session_state.camera_thread.start()
+                st.rerun() 
         else:
-            col_stop, col_refresh = st.columns(2)
+            col_stop, col_refresh_prompt = st.columns(2) # Renamed col_refresh to col_refresh_prompt for clarity
             with col_stop:
                 if st.button("⏹️ End Session", use_container_width=True):
-                    st.session_state.detection_running = False
+                    if st.session_state.stop_event:
+                        st.session_state.stop_event.set()
+                        print(f"[{_get_timestamp()}] Stop event set. Signaling camera thread to stop.")
+                    
+                    if st.session_state.camera_thread and st.session_state.camera_thread.is_alive():
+                        print(f"[{_get_timestamp()}] Waiting for camera thread to join...")
+                        st.session_state.camera_thread.join(timeout=5) 
+                        if st.session_state.camera_thread.is_alive():
+                             print(f"[{_get_timestamp()}] Camera thread did not join gracefully within timeout.")
+                    
+                    st.session_state.detection_running = False 
+                    st.session_state.emotion_detector = None 
+                    st.session_state.camera_thread = None 
+                    st.session_state.detector_instance_created = False 
+                    st.session_state.stop_event = None 
+                    st.session_state.prompt_is_fresh = True # Reset for next session
+                    st.session_state.journal_input_value = "" # Clear input area
+                    st.session_state.display_prompt_text = "" # Clear displayed prompt
+                    
+                    while not st.session_state.emotion_queue.empty(): 
+                        try:
+                            st.session_state.emotion_queue.get_nowait()
+                        except queue.Empty:
+                            break
                     st.rerun()
-            with col_refresh:
-                if st.button("🔄 New Emotion", use_container_width=True):
+            with col_refresh_prompt: # Use the renamed variable
+                if st.button("🔄 Get New Prompt", use_container_width=True): # Renamed button text
+                    st.session_state.prompt_is_fresh = True # Allow new prompt to be generated
                     st.rerun()
     
+    # Main content only if session is running
     if st.session_state.detection_running:
-        # Simulate emotion detection (in real app, this would connect to camera)
-        emotions = ['happy', 'sad', 'neutral', 'surprise', 'angry', 'fear']
-        current_emotion = random.choice(emotions)
-        confidence = random.uniform(65, 92)
         
-        st.session_state.current_emotion = {
-            'emotion': current_emotion,
-            'confidence': confidence
-        }
-        
-        # Main interface
+        # --- Consume data from queue and update st.session_state ---
+        try:
+            while True: 
+                update_data = st.session_state.emotion_queue.get_nowait()
+                if update_data['status'] == 'success':
+                    st.session_state.current_emotion = {
+                        'emotion': update_data['emotion'],
+                        'confidence': update_data['confidence']
+                    }
+                    print(f"[{_get_timestamp()}] UI Updated from Queue: {update_data['emotion']} ({update_data['confidence']:.1f}%)")
+                elif update_data['status'] == 'error' or update_data['status'] == 'critical_error':
+                    st.error(f"Error from camera thread: {update_data['message']}")
+                    st.session_state.detection_running = False 
+                elif update_data['status'] == 'warning':
+                    st.warning(f"Camera thread warning: {update_data['message']}")
+        except queue.Empty:
+            pass 
+        except Exception as e:
+            st.error(f"Error processing queue data in main thread: {e}")
+            st.session_state.detection_running = False 
+
+
+        # Main interface layout
         col_left, col_right = st.columns([1, 2])
         
         with col_left:
             st.subheader("🧠 Current State")
             
-            emotion = st.session_state.current_emotion['emotion']
-            confidence = st.session_state.current_emotion['confidence']
+            emotion = st.session_state.current_emotion.get('emotion', 'neutral')
+            confidence = st.session_state.current_emotion.get('confidence', 0.0)
             emoji = get_emotion_emoji(emotion)
             
-            # Emotion display
             emotion_html = f"""
             <div class="emotion-badge emotion-{emotion}">
                 {emoji} {emotion.upper()}
@@ -391,7 +479,8 @@ def main():
             """
             st.markdown(emotion_html, unsafe_allow_html=True)
             
-            # Session info
+            st.info("🎥 Camera active in background, detecting emotions...")
+
             if st.session_state.session_start_time:
                 duration = datetime.now() - st.session_state.session_start_time
                 duration_str = f"{duration.seconds // 60}m {duration.seconds % 60}s"
@@ -405,43 +494,51 @@ def main():
                 """
                 st.markdown(session_html, unsafe_allow_html=True)
             
-            # Voice input section
             st.markdown("### 🎤 Voice Input")
             uploaded_file = st.file_uploader(
                 "Upload voice recording",
                 type=['wav', 'mp3', 'm4a', 'ogg'],
-                help="Record your thoughts and upload"
+                help="Record your thoughts and upload",
+                key="voice_uploader" 
             )
             
             if uploaded_file:
                 st.audio(uploaded_file)
-                if st.button("📝 Transcribe", use_container_width=True):
+                if st.button("📝 Transcribe Voice", use_container_width=True): 
                     with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp_file:
                         tmp_file.write(uploaded_file.read())
                         tmp_file_path = tmp_file.name
                     
                     try:
-                        api_key = os.getenv('OPENAI_API_KEY') or st.session_state.get('openai_api_key')
-                        with st.spinner("🎯 Transcribing..."):
-                            transcript = transcribe_audio(tmp_file_path, api_key)
-                        
-                        if transcript:
-                            st.session_state.voice_transcript = transcript
-                            st.success("✅ Voice transcribed!")
+                        api_key = st.session_state.get('openai_api_key') 
+                        if api_key:
+                            with st.spinner("🎯 Transcribing..."):
+                                transcript = transcribe_audio(tmp_file_path, api_key)
+                            
+                            if transcript:
+                                st.session_state.voice_transcript = transcript
+                                st.session_state.journal_input_value = f"[🎤 Voice Input]: {transcript}\n\n" # Populate text area
+                                st.success("✅ Voice transcribed!")
+                            else:
+                                st.error("❌ Transcription failed. Check API key or audio file.")
+                        else:
+                            st.warning("Please provide OpenAI API key to transcribe voice.")
                     finally:
-                        os.unlink(tmp_file_path)
+                        if os.path.exists(tmp_file_path):
+                            os.unlink(tmp_file_path)
         
         with col_right:
             st.subheader("✍️ Emotional Journaling")
             
-            # Get emotion-based prompt
-            current_prompt = get_emotion_prompt(emotion)
-            st.session_state.current_prompt = current_prompt
+            # --- Prompt Generation Logic ---
+            # Only generate a new prompt if the flag is set (new session, after entry, or new prompt button)
+            if st.session_state.prompt_is_fresh:
+                st.session_state.display_prompt_text = get_emotion_prompt(emotion)
+                st.session_state.prompt_is_fresh = False # Lock it until next trigger
             
-            # Display prompt
             prompt_html = f"""
             <div class="prompt-container">
-                💭 {current_prompt}
+                💭 {st.session_state.display_prompt_text}
             </div>
             """
             st.markdown(prompt_html, unsafe_allow_html=True)
@@ -450,48 +547,50 @@ def main():
             with st.container():
                 st.markdown('<div class="journal-container">', unsafe_allow_html=True)
                 
-                # Pre-fill with voice transcript if available
-                initial_text = ""
-                if st.session_state.voice_transcript:
-                    initial_text = f"[🎤 Voice Input]: {st.session_state.voice_transcript}\n\n"
-                    st.info("🎤 Voice transcript added below. Feel free to edit or add more thoughts.")
-                
+                # Use a stable key and update value via on_change callback
                 journal_text = st.text_area(
                     "Share your thoughts...",
-                    value=initial_text,
+                    value=st.session_state.journal_input_value, # Bind value to session state
                     placeholder="Start writing about what's on your mind. Let your thoughts flow naturally...",
                     height=200,
-                    key=f"journal_input_{datetime.now().strftime('%H%M%S')}"
+                    key="main_journal_input", # Stable key
+                    on_change=lambda: st.session_state.update(journal_input_value=st.session_state.main_journal_input)
                 )
                 
                 col_save, col_ai = st.columns([1, 1])
                 
                 with col_save:
                     if st.button("💾 Save Entry", use_container_width=True):
-                        if journal_text.strip():
-                            entry = save_journal_entry(emotion, current_prompt, journal_text)
+                        # Use the value from session state, not the direct widget return
+                        entry_content = st.session_state.journal_input_value.strip()
+                        if entry_content:
+                            entry = save_journal_entry(emotion, st.session_state.display_prompt_text, entry_content)
                             st.success(f"✅ Entry saved!")
-                            st.session_state.voice_transcript = ""  # Clear voice transcript
+                            st.session_state.voice_transcript = ""  
+                            st.session_state.journal_input_value = "" # Clear input area after saving
+                            st.session_state.prompt_is_fresh = True # Ready for new prompt on next rerun
                             st.rerun()
                         else:
                             st.warning("Please write something before saving!")
                 
                 with col_ai:
                     if st.button("🤖 Get AI Response", use_container_width=True, type="primary"):
-                        if journal_text.strip():
+                        entry_content = st.session_state.journal_input_value.strip()
+                        if entry_content:
                             with st.spinner("🧠 AI companion is crafting a thoughtful response..."):
                                 ai_response = st.session_state.gpt_companion.generate_response(
-                                    journal_text, emotion, confidence/100
+                                    entry_content, emotion, confidence/100
                                 )
                             
-                            # Save entry with AI response
                             entry = save_journal_entry(
-                                emotion, current_prompt, journal_text, 
+                                emotion, st.session_state.display_prompt_text, entry_content, 
                                 ai_response['response'] if ai_response['success'] else None
                             )
                             
                             st.session_state.latest_ai_response = ai_response
-                            st.session_state.voice_transcript = ""  # Clear voice transcript
+                            st.session_state.voice_transcript = ""  
+                            st.session_state.journal_input_value = "" # Clear input area after AI response
+                            st.session_state.prompt_is_fresh = True # Ready for new prompt on next rerun
                             st.success("✅ Entry saved with AI response!")
                             st.rerun()
                         else:
@@ -499,46 +598,50 @@ def main():
                 
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            # Show latest AI response
-            if 'latest_ai_response' in st.session_state:
+            if 'latest_ai_response' in st.session_state and st.session_state.latest_ai_response['success']:
                 ai_response = st.session_state.latest_ai_response
                 
-                if ai_response['success']:
-                    st.markdown("### 🤖 AI Companion Response")
-                    
-                    ai_html = f"""
-                    <div class="ai-response-container">
-                        <div style="display: flex; align-items: center; margin-bottom: 1rem;">
-                            <span style="font-size: 1.5rem; margin-right: 0.5rem;">💙</span>
-                            <strong style="color: #2E7D8E;">SentioAI Companion</strong>
-                        </div>
-                        <p style="margin: 0; font-size: 1.1rem; line-height: 1.6; color: #333;">
-                            {ai_response['response']}
-                        </p>
-                        <div style="margin-top: 1rem; font-size: 0.9rem; color: #666;">
-                            <em>Responding to your {ai_response['emotion_addressed']} with {ai_response['confidence']:.1%} confidence</em>
-                        </div>
+                st.markdown("### 🤖 AI Companion Response")
+                
+                ai_html = f"""
+                <div class="ai-response-container">
+                    <div style="display: flex; align-items: center; margin-bottom: 1rem;">
+                        <span style="font-size: 1.5rem; margin-right: 0.5rem;">💙</span>
+                        <strong style="color: #2E7D8E;">SentioAI Companion</strong>
                     </div>
-                    """
-                    st.markdown(ai_html, unsafe_allow_html=True)
-                    
-                    # Option to get a different response
-                    if st.button("🔄 Get Different Response", use_container_width=True):
-                        # Re-generate with different temperature for variety
+                    <p style="margin: 0; font-size: 1.1rem; line-height: 1.6; color: #333;">
+                        {ai_response['response']}
+                    </p>
+                    <div style="margin-top: 1rem; font-size: 0.9rem; color: #666;">
+                        <em>Responding to your {ai_response['emotion_addressed']} with {ai_response['confidence']:.1f}% confidence</em>
+                    </div>
+                </div>
+                """
+                st.markdown(ai_html, unsafe_allow_html=True)
+                
+                if st.button("🔄 Get Different Response", use_container_width=True, key="get_diff_ai_response"):
+                    if st.session_state.journal_entries:
                         last_entry = st.session_state.journal_entries[-1]
                         with st.spinner("🎨 Generating alternative response..."):
+                            entry_emotion = last_entry['emotion']
+                            entry_confidence = last_entry['confidence'] if 'confidence' in last_entry else confidence 
                             new_response = st.session_state.gpt_companion.generate_response(
                                 last_entry['entry_text'], 
-                                last_entry['emotion'], 
-                                confidence/100
+                                entry_emotion, 
+                                entry_confidence/100 
                             )
                         st.session_state.latest_ai_response = new_response
                         
-                        # Update the saved entry
-                        st.session_state.journal_entries[-1]['ai_response'] = new_response['response']
+                        if new_response['success']:
+                            st.session_state.journal_entries[-1]['ai_response'] = new_response['response']
                         st.rerun()
-        
-        # Recent entries with AI responses
+                    else:
+                        st.warning("No previous entry to generate a different response for.")
+            elif 'latest_ai_response' in st.session_state and not st.session_state.latest_ai_response['success']:
+                st.error("❌ Error generating AI response.")
+                st.write(st.session_state.latest_ai_response.get('error', 'Unknown error.'))
+
+
         if st.session_state.journal_entries:
             st.subheader("📚 Your Emotional Journey")
             
@@ -555,12 +658,12 @@ def main():
                     else:
                         st.write("*No AI response for this entry*")
         
-        # Auto-refresh for emotion updates (every 5 seconds)
-        time.sleep(5)
-        st.rerun()
+        # Auto-refresh for UI updates (e.g., every 2-3 seconds for emotion badge)
+        if st.session_state.detection_running:
+            time.sleep(2) # CHANGED: Increased sleep to 2 seconds for less jarring updates
+            st.rerun()
     
     else:
-        # Welcome screen
         st.markdown("""
         <div style="text-align: center; padding: 3rem 1rem;">
             <h3>🌟 Welcome to Complete SentioAI Experience</h3>
@@ -572,7 +675,6 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        # Features overview
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:

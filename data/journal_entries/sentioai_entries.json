@@ -1,0 +1,20 @@
+[
+  {
+    "id": "a8445164-766e-4f8f-ab13-94951165220d",
+    "timestamp": "2025-06-18T15:13:39.635037",
+    "emotion": "surprise",
+    "prompt": "Your expression suggests something unexpected. What's this new development?",
+    "entry_text": "I'm feeling really suprised because a friend i havent spoken to in awhile reached out to me. I don't know how to feel, should I respond or be skeptical of them? What do you think?\n",
+    "ai_response": "It sounds like this unexpected message has stirred up a mix of emotions for you. It's completely natural to feel both surprised and uncertain about how to respond, especially if time has passed since you last connected. I notice that you\u2019re weighing your options carefully. What are some of the feelings that come up for you when you think about reconnecting with this friend?",
+    "readable_time": "03:13 PM on June 18, 2025"
+  },
+  {
+    "id": "59d066b8-5c79-4a47-aae1-c956a30dd408",
+    "timestamp": "2025-06-18T15:14:03.186550",
+    "emotion": "surprise",
+    "prompt": "Something seems to have caught your attention. What's the surprising moment about?",
+    "entry_text": "I'm feeling really suprised because a friend i havent spoken to in awhile reached out to me. I don't know how to feel, should I respond or be skeptical of them? What do you think?\n",
+    "ai_response": null,
+    "readable_time": "03:14 PM on June 18, 2025"
+  }
+]
