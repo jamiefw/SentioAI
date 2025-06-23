@@ -36,7 +36,7 @@ def create_tables():
                     entry_text TEXT NOT NULL,
                     ai_response TEXT,
                     voice_data TEXT,
-                    readable_time TEXT NOT NULL
+                    readable_time TEXT NOT NULL 
                 );
             """)
             conn.commit()
@@ -82,19 +82,37 @@ def insert_journal_entry(entry_data):
                 conn.close()
 
 def get_all_journal_entries():
-    """Retrieve all journal entries from the database."""
+    """Retrieve all journal entries from the database with robust type handling."""
     conn = create_connection()
     entries = []
     if conn:
         try:
+            # Use sqlite3.Row factory to get dict-like rows with column names
+            conn.row_factory = sqlite3.Row 
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM journal_entries ORDER BY timestamp ASC;")
             rows = cursor.fetchall()
-
-            col_names = [description[0] for description in cursor.description]
+            
             for row in rows:
-                entries.append(dict(zip(col_names, row)))
-
+                entry_dict = dict(row) # Convert Row object to a regular dictionary
+                
+                # Iterate through all values in the dictionary
+                # Explicitly decode bytes to string, or convert other unexpected types
+                for key, value in entry_dict.items():
+                    if isinstance(value, bytes):
+                        try:
+                            # Attempt to decode bytes to string (assuming UTF-8 encoding)
+                            entry_dict[key] = value.decode('utf-8')
+                        except UnicodeDecodeError:
+                            print(f"[{datetime.now().strftime('%H:%M:%S')}] Warning: Could not decode bytes in column '{key}' for entry {entry_dict['id']}. Setting to None.")
+                            entry_dict[key] = None # Set to None if decoding fails
+                    # Also handle any other non-string/non-numeric types that might sneak in
+                    elif value is not None and not isinstance(value, (str, int, float, bool)):
+                         print(f"[{datetime.now().strftime('%H:%M:%S')}] Warning: Unexpected type {type(value)} in column '{key}' for entry {entry_dict['id']}. Converting to string.")
+                         entry_dict[key] = str(value) # Convert to string
+                
+                entries.append(entry_dict)
+            
         except sqlite3.Error as e:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Error retrieving journal entries: {e}")
         finally:
@@ -104,11 +122,7 @@ def get_all_journal_entries():
 
 # Example usage (for testing this module independently if needed)
 if __name__ == '__main__':
-    # This block only runs if database.py is executed directly, not imported
     create_tables()
-    # Example data for direct testing
-    # from datetime import datetime
-    # import uuid
     # test_entry = {
     #     'id': str(uuid.uuid4()),
     #     'timestamp': datetime.now().isoformat(),
