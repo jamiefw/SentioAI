@@ -26,6 +26,7 @@ import uuid
 import sys
 import random
 import queue
+import plotly.express as px
 
 # --- Path Adjustments for Imports ---
 # Get the absolute path of the directory containing the current script (app.py)
@@ -729,23 +730,72 @@ def main():
             - Emotion-aware tone adaptation
             - Thoughtful follow-up questions
             """)
-        st.markdown("---") # Add a separator
-        st.subheader("📚 All Stored Journal Entries")
-        
-        all_entries = database.get_all_journal_entries()
-        
-        if all_entries:
-            # Convert list of dicts to a Pandas DataFrame for nicer display
-            import pandas as pd
-            df = pd.DataFrame(all_entries)
-            
-            # Optionally, select and reorder columns for display
-            display_cols = ['readable_time', 'emotion', 'confidence', 'prompt', 'entry_text', 'ai_response']
-            df_display = df[display_cols]
-            
-            st.dataframe(df_display, use_container_width=True) # Display as an interactive table
-        else:
-            st.info("No journal entries found in the database yet. Start a session and save some!")
+        st.markdown("---")
+        st.subheader("📊 Your Emotional Insights")
+
+        with st.expander("View Your Emotional Data & Analytics"):
+            all_entries = database.get_all_journal_entries() 
+
+            if all_entries:
+                import pandas as pd
+                df = pd.DataFrame(all_entries)
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df = df.sort_values('timestamp').reset_index(drop=True)
+
+                # --- NEW DEBUGGING SECTION IN UI ---
+                st.write("### Debugging DataFrame Details")
+                st.write("#### Column Data Types:")
+                st.write(df.dtypes) # Displays the data type of each column
+                st.write("#### First 5 Rows of Data:")
+                st.write(df.head()) # Displays the first 5 rows of the DataFrame
+                st.write("---") # Add a separator for clarity
+                # --- END NEW DEBUGGING SECTION ---
+
+                st.write("### All Journal Entries (Raw Data)")
+                # Include 'voice_data' explicitly in display_cols so you can visually inspect it
+                display_cols = ['readable_time', 'emotion', 'confidence', 'prompt', 'entry_text', 'ai_response', 'voice_data'] 
+                existing_display_cols = [col for col in display_cols if col in df.columns]
+                st.dataframe(df[existing_display_cols], use_container_width=True)
+
+                st.write("---") 
+
+                st.write("### Emotional Timeline")
+
+                if not df.empty:
+                    try:
+                        fig_timeline = px.line(df, 
+                                                x='timestamp', 
+                                                y='confidence', 
+                                                color='emotion', 
+                                                title='Dominant Emotion Confidence Over Time',
+                                                labels={'timestamp': 'Date & Time', 'confidence': 'Confidence (%)', 'emotion': 'Emotion'},
+                                                # TEMPORARY: Simplify hover_data for debugging
+                                                hover_data=['emotion', 'confidence'] # ONLY these two for now
+                                               ) 
+
+                        fig_timeline.update_layout(hovermode="x unified") 
+                        st.plotly_chart(fig_timeline, use_container_width=True)
+
+                        st.write("### Emotion Breakdown")
+                        emotion_counts = df['emotion'].value_counts().reset_index()
+                        emotion_counts.columns = ['Emotion', 'Count']
+                        fig_bar = px.bar(emotion_counts, 
+                                         x='Emotion', 
+                                         y='Count', 
+                                         title='Overall Emotion Breakdown',
+                                         color='Emotion')
+                        st.plotly_chart(fig_bar, use_container_width=True)
+
+                    except TypeError as e:
+                        st.error(f"Error generating Plotly chart: {e}. This usually means there's a non-JSON serializable object (like bytes) in your data.")
+                        st.info("Please examine the 'Debugging DataFrame Details' and 'All Journal Entries (Raw Data)' sections above for unexpected content (e.g., raw binary data).")
+
+                else:
+                    st.info("No data available to generate charts. Save some entries first!")
+                # --- END NEW CHARTING SECTION ---
+
+            else:
+                st.info("No journal entries found in the database yet. Start a session and save some to see your insights here!")
 
 
 if __name__ == "__main__":
