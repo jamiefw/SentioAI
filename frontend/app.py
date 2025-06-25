@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
-"""
-Week 4 Complete: Integrated SentioAI Emotional Journaling App
-Combines emotion detection, journaling prompts, voice input, and GPT responses
-"""
 
 import streamlit as st
-
-# Page configuration MUST be first
 st.set_page_config(
     page_title="SentioAI - Complete Emotional Journal",
     page_icon="🌟",
@@ -26,9 +20,8 @@ import uuid
 import sys
 import random
 import queue
+import plotly.express as px
 
-# --- Path Adjustments for Imports ---
-# Get the absolute path of the directory containing the current script (app.py)
 current_script_dir = os.path.dirname(os.path.abspath(__file__))
 
 project_root_dir = os.path.join(current_script_dir, '..')
@@ -36,16 +29,16 @@ project_root_dir = os.path.join(current_script_dir, '..')
 #adding the project root to sys.path.insert(0) to ensure it's checked first
 sys.path.insert(0, project_root_dir)
 
-import backend.app.services.database as database # IMPORT
+import backend.app.services.database as database
 
 try:
-    # Also update the EmotionDetector import to be relative to the project root
+    # Import EmotionDetector from the emotion detection module
     from models.emotion_detection.emotion_classifier import EmotionDetector
 except ImportError as e:
     st.error(f"Could not import EmotionDetector: {e}. Please ensure 'models/emotion_detection/emotion_classifier.py' exists and dependencies are installed.")
     st.stop()
 
-# Import GPT companion (already present)
+# Import GPT companion
 class EmotionalCompanion:
     def __init__(self, api_key):
         """Initialize the GPT emotional companion"""
@@ -144,7 +137,7 @@ Guidelines:
                 'fallback': True
             }
 
-# Emotion-based prompts (already present)
+# Emotion-based prompts
 EMOTION_PROMPTS = {
     'happy': [
         "What's bringing you joy today? Let's capture this positive moment...",
@@ -190,12 +183,23 @@ EMOTION_PROMPTS = {
     ]
 }
 
+#Emotion colors for visual representation
+EMOTION_COLORS = {
+    'happy': '#E8F5E9',  # Light green for calmness
+    'sad': '#E3F2FD',    # Light blue for serenity
+    'angry': '#FFEBEE',  # Very light red/pink for gentle warmth (not aggressive)
+    'surprise': '#FFF8E1', # Light yellow for mild stimulation
+    'fear': '#F3E5F5',   # Light purple for contemplation
+    'disgust': '#F1F8E9', # Very light green, clean feel
+    'neutral': '#ECEFF1' # Light grey for balance
+}
+
+
 # Helper function to get the current timestamp for printing
 def _get_timestamp():
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
 # --- Camera and Emotion Detection Thread ---
-# Added 'output_queue' as a parameter for the thread to push data to
 def run_camera_detection(detector_instance, stop_event_for_thread, output_queue):
     """
     Function to run in a separate thread for continuous camera capture and emotion detection.
@@ -231,7 +235,6 @@ def run_camera_detection(detector_instance, stop_event_for_thread, output_queue)
                 break 
 
             try:
-                # Corrected: detect_emotion returns a single dictionary, not two values
                 emotion_data = detector_instance.detect_emotion(frame)
             except Exception as detector_e:
                 print(f"[{_get_timestamp()}] Error during emotion detection: {detector_e}")
@@ -245,7 +248,6 @@ def run_camera_detection(detector_instance, stop_event_for_thread, output_queue)
                                   'emotion': emotion_data['emotion'], 
                                   'confidence': emotion_data['confidence'], # CORRECTED: Removed * 100 here
                                   'timestamp': _get_timestamp()})
-                # print(f"[{_get_timestamp()}] Detected and queued: {emotion_data['emotion']} ({emotion_data['confidence']:.1f}%)")
                 
             time.sleep(0.05) # Small delay to prevent burning CPU
             
@@ -406,7 +408,7 @@ def main():
                 st.session_state.detection_running = True 
                 st.session_state.session_start_time = datetime.now()
                 
-                # NEW: Set prompt to be fresh on new session start
+                #Set prompt to be fresh on new session start
                 st.session_state.prompt_is_fresh = True 
                 st.session_state.journal_input_value = "" # Clear previous input
 
@@ -423,7 +425,7 @@ def main():
                     st.session_state.camera_thread.start()
                 st.rerun() 
         else:
-            col_stop, col_refresh_prompt = st.columns(2) # Renamed col_refresh to col_refresh_prompt for clarity
+            col_stop, col_refresh_prompt = st.columns(2)
             with col_stop:
                 if st.button("⏹️ End Session", use_container_width=True):
                     if st.session_state.stop_event:
@@ -468,7 +470,6 @@ def main():
                         'emotion': update_data['emotion'],
                         'confidence': update_data['confidence']
                     }
-                    # print(f"[{_get_timestamp()}] UI Updated from Queue: {update_data['emotion']} ({update_data['confidence']:.1f}%)")
                 elif update_data['status'] == 'error' or update_data['status'] == 'critical_error':
                     st.error(f"Error from camera thread: {update_data['message']}")
                     st.session_state.detection_running = False 
@@ -479,7 +480,26 @@ def main():
         except Exception as e:
             st.error(f"Error processing queue data in main thread: {e}")
             st.session_state.detection_running = False 
+        # --- END: Consume data from queue ---
 
+        # --- Update background color based on current emotion ---
+        current_emotion_for_theme = st.session_state.current_emotion.get('emotion', 'neutral')
+        background_color = EMOTION_COLORS.get(current_emotion_for_theme, EMOTION_COLORS['neutral'])
+        
+        # Inject custom CSS to change the main background color
+        # This targets the main content div that Streamlit renders
+        st.markdown(
+            f"""
+            <style>
+            .stApp {{
+                background-color: {background_color};
+                transition: background-color 0.5s ease-in-out; /* Smooth transition */
+            }}
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+        # --- END: Update background color based on current emotion ---
 
         # Main interface layout
         col_left, col_right = st.columns([1, 2])
@@ -681,7 +701,7 @@ def main():
         
         # Auto-refresh for UI updates (e.g., every 2-3 seconds for emotion badge)
         if st.session_state.detection_running:
-            time.sleep(2) # CHANGED: Increased sleep to 2 seconds for less jarring updates
+            time.sleep(2) 
             st.rerun()
     
     else:
@@ -729,23 +749,65 @@ def main():
             - Emotion-aware tone adaptation
             - Thoughtful follow-up questions
             """)
-        st.markdown("---") # Add a separator
-        st.subheader("📚 All Stored Journal Entries")
+        st.markdown("---")
+        st.subheader("📊 Your Emotional Insights")
+
+        with st.expander("View Your Emotional Data & Analytics"):
+            all_entries = database.get_all_journal_entries() 
+
+            if all_entries:
+                import pandas as pd
+                df = pd.DataFrame(all_entries)
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df = df.sort_values('timestamp').reset_index(drop=True)
+
         
-        all_entries = database.get_all_journal_entries()
-        
-        if all_entries:
-            # Convert list of dicts to a Pandas DataFrame for nicer display
-            import pandas as pd
-            df = pd.DataFrame(all_entries)
-            
-            # Optionally, select and reorder columns for display
-            display_cols = ['readable_time', 'emotion', 'confidence', 'prompt', 'entry_text', 'ai_response']
-            df_display = df[display_cols]
-            
-            st.dataframe(df_display, use_container_width=True) # Display as an interactive table
-        else:
-            st.info("No journal entries found in the database yet. Start a session and save some!")
+
+                st.write("### All Journal Entries (Raw Data)")
+                # Include 'voice_data' explicitly in display_cols so you can visually inspect it
+                display_cols = ['readable_time', 'emotion', 'confidence', 'prompt', 'entry_text', 'ai_response', 'voice_data'] 
+                existing_display_cols = [col for col in display_cols if col in df.columns]
+                st.dataframe(df[existing_display_cols], use_container_width=True)
+
+                st.write("---") 
+
+                st.write("### Emotional Timeline")
+
+                if not df.empty:
+                    try:
+                        fig_timeline = px.line(df, 
+                                                x='timestamp', 
+                                                y='confidence', 
+                                                color='emotion', 
+                                                title='Dominant Emotion Confidence Over Time',
+                                                labels={'timestamp': 'Date & Time', 'confidence': 'Confidence (%)', 'emotion': 'Emotion'},
+                                                # TEMPORARY: Simplify hover_data for debugging
+                                                hover_data=['emotion', 'confidence'] # ONLY these two for now
+                                               ) 
+
+                        fig_timeline.update_layout(hovermode="x unified") 
+                        st.plotly_chart(fig_timeline, use_container_width=True)
+
+                        st.write("### Emotion Breakdown")
+                        emotion_counts = df['emotion'].value_counts().reset_index()
+                        emotion_counts.columns = ['Emotion', 'Count']
+                        fig_bar = px.bar(emotion_counts, 
+                                         x='Emotion', 
+                                         y='Count', 
+                                         title='Overall Emotion Breakdown',
+                                         color='Emotion')
+                        st.plotly_chart(fig_bar, use_container_width=True)
+
+                    except TypeError as e:
+                        st.error(f"Error generating Plotly chart: {e}. This usually means there's a non-JSON serializable object (like bytes) in your data.")
+                        st.info("Please examine the 'Debugging DataFrame Details' and 'All Journal Entries (Raw Data)' sections above for unexpected content (e.g., raw binary data).")
+
+                else:
+                    st.info("No data available to generate charts. Save some entries first!")
+                # --- END NEW CHARTING SECTION ---
+
+            else:
+                st.info("No journal entries found in the database yet. Start a session and save some to see your insights here!")
 
 
 if __name__ == "__main__":
