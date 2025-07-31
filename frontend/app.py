@@ -2,8 +2,8 @@
 
 import streamlit as st
 st.set_page_config(
-    page_title="SentioAI - Complete Emotional Journal",
-    page_icon="🌟",
+    page_title="SentioAI",
+    page_icon="images/sentioai.png",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
