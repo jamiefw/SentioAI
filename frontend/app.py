@@ -2,8 +2,8 @@
 
 import streamlit as st
 st.set_page_config(
-    page_title="SentioAI - Complete Emotional Journal",
-    page_icon="🌟",
+    page_title="SentioAI",
+    page_icon="images/sentioai.png",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -185,13 +185,13 @@ EMOTION_PROMPTS = {
 
 #Emotion colors for visual representation
 EMOTION_COLORS = {
-    'happy': '#E8F5E9',  # Light green for calmness
-    'sad': '#E3F2FD',    # Light blue for serenity
-    'angry': '#FFEBEE',  # Very light red/pink for gentle warmth (not aggressive)
-    'surprise': '#FFF8E1', # Light yellow for mild stimulation
-    'fear': '#F3E5F5',   # Light purple for contemplation
-    'disgust': '#F1F8E9', # Very light green, clean feel
-    'neutral': '#ECEFF1' # Light grey for balance
+    'happy': "#F3EB96",  # Light green for calmness
+    'sad': "#C8E2F5",    # Light blue for serenity
+    'angry': "#EE9AA7",  # Very light red/pink for gentle warmth
+    'surprise': "#F0C79A", # Light yellow for mild stimulation
+    'fear': "#E4B7EB",   # Light purple for contemplation
+    'disgust': "#D9ECC3", # Very light green, clean feel
+    'neutral': "#DEE0E0" # Light grey for balance
 }
 
 
@@ -382,7 +382,7 @@ def main():
     database.create_tables() 
     
     # Header
-    st.markdown('<h1 class="main-header">🌟 SentioAI - Complete Emotional Journaling Experience</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">SentioAI</h1>', unsafe_allow_html=True)
     st.markdown('<p style="text-align: center; color: #666; margin-bottom: 2rem;">Emotion detection • Guided prompts • Voice input • AI companion responses</p>', unsafe_allow_html=True)
     
     # Check API setup
@@ -707,7 +707,7 @@ def main():
     else:
         st.markdown("""
         <div style="text-align: center; padding: 3rem 1rem;">
-            <h3>🌟 Welcome to Complete SentioAI Experience</h3>
+            <h3>Welcome to The SentioAI Experience</h3>
             <p style="font-size: 1.1rem; color: #666; max-width: 800px; margin: 0 auto;">
                 The complete emotional journaling companion with real-time emotion detection, 
                 voice input, guided prompts, and empathetic AI responses. Start a session to experience 
